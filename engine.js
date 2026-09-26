@@ -18,7 +18,7 @@ const tmdbOptions = {
 };
 
 async function buildEngine() {
-  console.log("Iniciando Motor Cartoonzine VidSrc Provider (Modo Catálogo Gigante)...");
+  console.log("Iniciando Motor Cartoonzine VidSrc Provider...");
 
   if (!TMDB_TOKEN) {
     console.log("❌ ERRO CRÍTICO: O Token do TMDB não foi encontrado nas Secrets!");
@@ -29,11 +29,10 @@ async function buildEngine() {
   const seriesDB = [];
 
   try {
-    console.log("✅ Coletando IDs em massa do TMDB (Múltiplas páginas)...");
+    console.log("✅ Coletando IDs do TMDB...");
     
     let tmdbMovies = [];
-    // Varre até 15 páginas de filmes populares/em alta (~300 a 400 filmes)
-    for (let page = 1; page <= 15; page++) {
+    for (let page = 1; page <= 5; page++) {
       try {
         const res = await axios.get(`https://api.themoviedb.org/3/movie/popular?language=pt-BR&page=${page}`, tmdbOptions);
         if (res.data && res.data.results) {
@@ -43,8 +42,7 @@ async function buildEngine() {
     }
 
     let tmdbSeries = [];
-    // Varre até 15 páginas de séries populares/em alta (~300 a 400 séries)
-    for (let page = 1; page <= 15; page++) {
+    for (let page = 1; page <= 5; page++) {
       try {
         const res = await axios.get(`https://api.themoviedb.org/3/tv/popular?language=pt-BR&page=${page}`, tmdbOptions);
         if (res.data && res.data.results) {
@@ -53,7 +51,7 @@ async function buildEngine() {
       } catch (e) { break; }
     }
 
-    console.log(`🎬 Total bruto coletado: \({tmdbMovies.length} Filmes e\){tmdbSeries.length} Séries. Processando metadados e links...`);
+    console.log(`🎬 Total bruto: \({tmdbMovies.length} Filmes e\){tmdbSeries.length} Séries. Processando...`);
 
     // Processar Filmes
     for (const m of tmdbMovies) {
@@ -76,11 +74,11 @@ async function buildEngine() {
             url: `\({EMBED_DOMAIN}/movie/\){imdbId}`,
             year: year,
             genre: movieDetails.genres && movieDetails.genres.length > 0 ? movieDetails.genres[0].name : "Filme",
-            destaque:
+            destaque: false
           });
         }
       } catch (e) {}
-      await delay(100); // Delay otimizado para ir mais rápido
+      await delay(100);
     }
 
     // Processar Séries
@@ -89,8 +87,8 @@ async function buildEngine() {
         const details = await axios.get(`https://api.themoviedb.org/3/tv/${s.id}?language=pt-BR`, tmdbOptions);
         const showDetails = details.data;
         
-        const extIds = await axios.get(`https://api.themoviedb.org/3/tv/${s.id}/external_ids`, tmdbOptions);
-        const imdbId = extIds.data.imdb_id;
+        const extRes = await axios.get(`https://api.themoviedb.org/3/tv/${s.id}/external_ids`, tmdbOptions);
+        const imdbId = extRes.data.imdb_id;
 
         if (showDetails && imdbId) {
           const year = showDetails.first_air_date ? showDetails.first_air_date.split('-')[0] : "";
@@ -136,7 +134,7 @@ async function buildEngine() {
 
     fs.writeFileSync(MOVIES_OUT, JSON.stringify(moviesDB, null, 2));
     fs.writeFileSync(SERIES_OUT, JSON.stringify(seriesDB, null, 2));
-    console.log(`🎉 Sucesso Absoluto! Salvos \({moviesDB.length} filmes e\){seriesDB.length} séries completos com URLs e capas.`);
+    console.log(`🎉 Sucesso! Salvos \({moviesDB.length} filmes e\){seriesDB.length} séries.`);
 
   } catch (err) {
     console.error("Erro Fatal na execução:", err.message);
