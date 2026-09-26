@@ -2,7 +2,8 @@ const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 
-const TMDB_API_KEY = process.env.TMDB_API_KEY; 
+// Agora usaremos o Token Gigante (v4)
+const TMDB_TOKEN = process.env.TMDB_API_KEY; 
 const EMBED_DOMAIN = "https://vidsrc.sh/embed";
 
 const MOVIES_OUT = path.join(__dirname, 'movies.json');
@@ -10,11 +11,19 @@ const SERIES_OUT = path.join(__dirname, 'series.json');
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-async function buildEngine() {
-  console.log("Iniciando o Motor Cartoonzine VidSrc Provider (Modo TMDB Bypass)...");
+// Configuração do cabeçalho de segurança do TMDB
+const tmdbOptions = {
+  headers: {
+    'Accept': 'application/json',
+    'Authorization': `Bearer ${TMDB_TOKEN}`
+  }
+};
 
-  if (!TMDB_API_KEY) {
-    console.log("❌ ERRO CRÍTICO: A TMDB_API_KEY não foi encontrada nas Secrets!");
+async function buildEngine() {
+  console.log("Iniciando Motor Cartoonzine VidSrc Provider (Modo Token v4)...");
+
+  if (!TMDB_TOKEN) {
+    console.log("❌ ERRO CRÍTICO: O Token do TMDB não foi encontrado nas Secrets!");
     process.exit(1);
   }
 
@@ -22,19 +31,17 @@ async function buildEngine() {
   const seriesDB = [];
 
   try {
-    console.log("✅ Buscando Lançamentos e Populares diretamente no TMDB (Bypass Cloudflare)...");
+    console.log("✅ Buscando Lançamentos e Populares no TMDB...");
     
-    // Buscando as primeiras 2 páginas de Filmes Populares (aprox 40 filmes)
     let tmdbMovies = [];
     for (let page = 1; page <= 2; page++) {
-      const res = await axios.get(`https://api.themoviedb.org/3/movie/popular?api_key=\({TMDB_API_KEY}&language=pt-BR&page=\){page}`);
+      const res = await axios.get(`https://api.themoviedb.org/3/movie/popular?language=pt-BR&page=${page}`, tmdbOptions);
       tmdbMovies = tmdbMovies.concat(res.data.results);
     }
 
-    // Buscando as primeiras 2 páginas de Séries Populares (aprox 40 séries)
     let tmdbSeries = [];
     for (let page = 1; page <= 2; page++) {
-      const res = await axios.get(`https://api.themoviedb.org/3/tv/popular?api_key=\({TMDB_API_KEY}&language=pt-BR&page=\){page}`);
+      const res = await axios.get(`https://api.themoviedb.org/3/tv/popular?language=pt-BR&page=${page}`, tmdbOptions);
       tmdbSeries = tmdbSeries.concat(res.data.results);
     }
 
@@ -43,11 +50,9 @@ async function buildEngine() {
     // Processar Filmes
     for (const m of tmdbMovies) {
       try {
-        // Pega detalhes completos para pegar o imdb_id e Gênero
-        const details = await axios.get(`https://api.themoviedb.org/3/movie/\({m.id}?api_key=\){TMDB_API_KEY}&language=pt-BR`);
+        const details = await axios.get(`https://api.themoviedb.org/3/movie/${m.id}?language=pt-BR`, tmdbOptions);
         const movieDetails = details.data;
 
-        // Só processa se existir o ID do IMDb para forjar o link do VidSrc
         if (movieDetails && movieDetails.imdb_id) {
           moviesDB.push({
             cat: "Filmes",
@@ -71,12 +76,10 @@ async function buildEngine() {
     // Processar Séries
     for (const s of tmdbSeries) {
       try {
-        // Pega detalhes da série
-        const details = await axios.get(`https://api.themoviedb.org/3/tv/\({s.id}?api_key=\){TMDB_API_KEY}&language=pt-BR`);
+        const details = await axios.get(`https://api.themoviedb.org/3/tv/${s.id}?language=pt-BR`, tmdbOptions);
         const showDetails = details.data;
         
-        // Séries precisam de uma chamada extra para pegar o imdb_id
-        const extIds = await axios.get(`https://api.themoviedb.org/3/tv/\({s.id}/external_ids?api_key=\){TMDB_API_KEY}`);
+        const extIds = await axios.get(`https://api.themoviedb.org/3/tv/${s.id}/external_ids`, tmdbOptions);
         const imdbId = extIds.data.imdb_id;
 
         if (showDetails && imdbId) {
@@ -89,7 +92,7 @@ async function buildEngine() {
                 episodesArray.push({
                   season: season.season_number,
                   episode: ep,
-                  url: `\({EMBED_DOMAIN}/tv/\){imdbId}/\({season.season_number}/\){ep}` // URL Forjada!
+                  url: `\({EMBED_DOMAIN}/tv/\){imdbId}/\({season.season_number}/\){ep}`
                 });
               }
               if (episodesArray.length > 0) {
@@ -118,13 +121,13 @@ async function buildEngine() {
     }
 
     if (moviesDB.length === 0 && seriesDB.length === 0) {
-      console.log("❌ Nenhum dado foi formatado. Abortando para não salvar arquivos em branco!");
+      console.log("❌ Nenhum dado formatado. Abortando!");
       process.exit(1);
     }
 
     fs.writeFileSync(MOVIES_OUT, JSON.stringify(moviesDB, null, 2));
     fs.writeFileSync(SERIES_OUT, JSON.stringify(seriesDB, null, 2));
-    console.log(`🎉 Bypass Concluído! Salvos \({moviesDB.length} filmes e\){seriesDB.length} séries com sucesso.`);
+    console.log(`🎉 Sucesso! Salvos \({moviesDB.length} filmes e\){seriesDB.length} séries no banco.`);
 
   } catch (err) {
     console.error("Erro Fatal na API do TMDB:", err.message);
