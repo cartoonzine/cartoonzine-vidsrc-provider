@@ -1,0 +1,12 @@
+{
+  "name": "cartoonzine-vidsrc-provider",
+  "version": "1.0.0",
+  "description": "Motor de extração VidSrc para o Cartoonzine",
+  "main": "engine.js",
+  "scripts": {
+    "start": "node engine.js"
+  },
+  "dependencies": {
+    "axios": "^1.6.8"
+  }
+}

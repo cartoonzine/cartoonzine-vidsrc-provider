@@ -1,0 +1,33 @@
+name: Executar Motor VidSrc
+
+on:
+  workflow_dispatch: # Habilita o botão manual no GitHub
+
+jobs:
+  run-engine:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Clonar repositório
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Instalar dependências
+        run: npm install
+
+      - name: Rodar o Motor
+        env:
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+        run: npm start
+
+      - name: Salvar os JSONs
+        run: |
+          git config --global user.name 'Motor VidSrc Bot'
+          git config --global user.email 'bot@cartoonzine.com'
+          git add movies.json series.json
+          git commit -m "auto: Atualizando listas VidSrc + TMDB" || echo "Sem alterações"
+          git push
