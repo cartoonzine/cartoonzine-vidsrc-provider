@@ -2,7 +2,6 @@ const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 
-// Agora usaremos o Token Gigante (v4)
 const TMDB_TOKEN = process.env.TMDB_API_KEY; 
 const EMBED_DOMAIN = "https://vidsrc.sh/embed";
 
@@ -11,7 +10,6 @@ const SERIES_OUT = path.join(__dirname, 'series.json');
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// Configuração do cabeçalho de segurança do TMDB
 const tmdbOptions = {
   headers: {
     'Accept': 'application/json',
@@ -20,7 +18,7 @@ const tmdbOptions = {
 };
 
 async function buildEngine() {
-  console.log("Iniciando Motor Cartoonzine VidSrc Provider (Modo Token v4)...");
+  console.log("Iniciando Motor Cartoonzine VidSrc Provider (Versão Corrigida)...");
 
   if (!TMDB_TOKEN) {
     console.log("❌ ERRO CRÍTICO: O Token do TMDB não foi encontrado nas Secrets!");
@@ -45,7 +43,7 @@ async function buildEngine() {
       tmdbSeries = tmdbSeries.concat(res.data.results);
     }
 
-    console.log(`🎬 Encontrados: \({tmdbMovies.length} Filmes e\){tmdbSeries.length} Séries. Montando o Banco...`);
+    console.log(`🎬 Processando ${tmdbMovies.length} Filmes...`);
 
     // Processar Filmes
     for (const m of tmdbMovies) {
@@ -53,25 +51,33 @@ async function buildEngine() {
         const details = await axios.get(`https://api.themoviedb.org/3/movie/${m.id}?language=pt-BR`, tmdbOptions);
         const movieDetails = details.data;
 
-        if (movieDetails && movieDetails.imdb_id) {
+        // Precisamos buscar os IDs externos do filme para garantir o imdb_id
+        const extRes = await axios.get(`https://api.themoviedb.org/3/movie/${m.id}/external_ids`, tmdbOptions);
+        const imdbId = extRes.data.imdb_id;
+
+        if (movieDetails && imdbId) {
+          const year = movieDetails.release_date ? movieDetails.release_date.split('-')[0] : "";
+          
           moviesDB.push({
             cat: "Filmes",
-            title: `\({movieDetails.title} (\){movieDetails.release_date ? movieDetails.release_date.split('-')[0] : ""})`,
+            title: `\({movieDetails.title} (\){year})`,
             desc: movieDetails.overview || "Sinopse em breve...",
             thumb: movieDetails.poster_path ? `https://image.tmdb.org/t/p/w500${movieDetails.poster_path}` : "",
-            bannerThumb: movieDetails.backdrop_path ? `https://image.tmdb.org/t/p/w500${movieDetails.backdrop_path}` : "",
-            url: `\({EMBED_DOMAIN}/movie/\){movieDetails.imdb_id}`,
-            year: movieDetails.release_date ? movieDetails.release_date.split('-')[0] : "",
+            bannerThumb: movieDetails.backdrop_path ? `https://image.tmdb.org/t/p/w1280${movieDetails.backdrop_path}` : "",
+            url: `\({EMBED_DOMAIN}/movie/\){imdbId}`,
+            year: year,
             genre: movieDetails.genres && movieDetails.genres.length > 0 ? movieDetails.genres[0].name : "Filme",
-            destaque:
+            destaque: false
           });
-          console.log(`✅ [Filme OK] ${movieDetails.title}`);
+          console.log(`✅ [Filme OK] \({movieDetails.title} (\){imdbId})`);
         }
       } catch (e) {
         console.log(`⚠️ Erro ao processar o filme ID ${m.id}`);
       }
       await delay(150);
     }
+
+    console.log(`Processando ${tmdbSeries.length} Séries...`);
 
     // Processar Séries
     for (const s of tmdbSeries) {
@@ -83,7 +89,9 @@ async function buildEngine() {
         const imdbId = extIds.data.imdb_id;
 
         if (showDetails && imdbId) {
+          const year = showDetails.first_air_date ? showDetails.first_air_date.split('-')[0] : "";
           const seasonsArray = [];
+
           if (showDetails.seasons) {
             for (const season of showDetails.seasons) {
               if (season.season_number === 0) continue; 
@@ -92,7 +100,7 @@ async function buildEngine() {
                 episodesArray.push({
                   season: season.season_number,
                   episode: ep,
-                  url: `\({EMBED_DOMAIN}/tv/\){imdbId}/\({season.season_number}/\){ep}`
+                  url: `\({EMBED_DOMAIN}/tv/\){imdbId}/\({season.season_number}/\){ep}` // URL Forjada com IMDb ID correto
                 });
               }
               if (episodesArray.length > 0) {
@@ -106,13 +114,13 @@ async function buildEngine() {
             title: showDetails.name,
             desc: showDetails.overview || "Sinopse em breve...",
             thumb: showDetails.poster_path ? `https://image.tmdb.org/t/p/w500${showDetails.poster_path}` : "",
-            bannerThumb: showDetails.backdrop_path ? `https://image.tmdb.org/t/p/w500${showDetails.backdrop_path}` : "",
-            year: showDetails.first_air_date ? showDetails.first_air_date.split('-')[0] : "",
+            bannerThumb: showDetails.backdrop_path ? `https://image.tmdb.org/t/p/w1280${showDetails.backdrop_path}` : "",
+            year: year,
             genre: showDetails.genres && showDetails.genres.length > 0 ? showDetails.genres[0].name : "Série",
-            destaque: false,
+            destaque:,
             seasons: seasonsArray
           });
-          console.log(`✅ [Série OK] ${showDetails.name}`);
+          console.log(`✅ [Série OK] \({showDetails.name} (\){imdbId})`);
         }
       } catch (e) {
         console.log(`⚠️ Erro ao processar a série ID ${s.id}`);
@@ -127,10 +135,10 @@ async function buildEngine() {
 
     fs.writeFileSync(MOVIES_OUT, JSON.stringify(moviesDB, null, 2));
     fs.writeFileSync(SERIES_OUT, JSON.stringify(seriesDB, null, 2));
-    console.log(`🎉 Sucesso! Salvos \({moviesDB.length} filmes e\){seriesDB.length} séries no banco.`);
+    console.log(`🎉 Sucesso! Salvos \({moviesDB.length} filmes e\){seriesDB.length} séries com os links corretos.`);
 
   } catch (err) {
-    console.error("Erro Fatal na API do TMDB:", err.message);
+    console.error("Erro Fatal na execução:", err.message);
     process.exit(1);
   }
 }
