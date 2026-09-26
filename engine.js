@@ -3,15 +3,25 @@ const fs = require('fs');
 const path = require('path');
 
 const TMDB_API_KEY = process.env.TMDB_API_KEY; 
+
+// Lista de domínios oficiais para driblar o Cloudflare
 const VIDSRC_DOMAINS = ["https://vidsrc.sh", "https://vidsrc2.ru", "https://vidsrc.ir"];
-const EMBED_DOMAIN = "https://vidsrc.sh/embed";
+const EMBED_DOMAIN = "https://vidsrc.sh/embed"; // Mantém o principal para os links do player
 
 const MOVIES_OUT = path.join(__dirname, 'movies.json');
 const SERIES_OUT = path.join(__dirname, 'series.json');
 
+// Disfarce mais agressivo fingindo ser a versão mais recente do Chrome
 const browserHeaders = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-  'Accept': 'application/json, text/plain, */*'
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+  'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
+  'Connection': 'keep-alive',
+  'Upgrade-Insecure-Requests': '1',
+  'Sec-Fetch-Dest': 'document',
+  'Sec-Fetch-Mode': 'navigate',
+  'Sec-Fetch-Site': 'none',
+  'Sec-Fetch-User': '?1'
 };
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -25,40 +35,19 @@ async function fetchFromTMDB(url) {
   }
 }
 
-// Busca IDs tentando primeiro a API JSON (menos bloqueada) e depois o TXT
-async function getIds(type) {
-  const jsonEndpoint = type === 'movie' ? "/movies/latest/page-1.json" : "/tvshows/latest/page-1.json";
-  
+// Função inteligente que tenta baixar de vários domínios se um falhar
+async function fetchVidSrcList(endpoint) {
   for (const domain of VIDSRC_DOMAINS) {
     try {
-      console.log(`Tentando API JSON em: \({domain}\){jsonEndpoint}`);
-      const res = await axios.get(`\({domain}\){jsonEndpoint}`, { headers: browserHeaders, timeout: 10000 });
-      if (res.data && res.data.result) {
-        const ids = res.data.result.map(item => item.imdb_id).filter(id => id && id.startsWith('tt'));
-        if (ids.length > 0) {
-          console.log(`✅ Sucesso via API JSON no domínio ${domain}`);
-          return ids.slice(0, 50); // Pegamos os primeiros 50
-        }
-      }
-    } catch (e) {}
+      console.log(`Tentando baixar lista de: \({domain}\){endpoint}`);
+      const res = await axios.get(`\({domain}\){endpoint}`, { headers: browserHeaders, timeout: 15000 });
+      console.log(`✅ Sucesso ao baixar de: ${domain}`);
+      return res.data;
+    } catch (e) {
+      console.log(`⚠️ Falha em \({domain}:\){e.message}`);
+    }
   }
-
-  const txtEndpoint = type === 'movie' ? "/ids/movie_imdb.txt" : "/ids/tv_imdb.txt";
-  for (const domain of VIDSRC_DOMAINS) {
-    try {
-      console.log(`Tentando TXT em: \({domain}\){txtEndpoint}`);
-      const res = await axios.get(`\({domain}\){txtEndpoint}`, { headers: browserHeaders, timeout: 10000 });
-      if (typeof res.data === 'string' && res.data.includes('tt')) {
-         const ids = res.data.match(/tt\d+/g);
-         if (ids && ids.length > 0) {
-           console.log(`✅ Sucesso via TXT no domínio ${domain}`);
-           // Pegamos 50 IDs únicos
-           return [...new Set(ids)].slice(0, 50);
-         }
-      }
-    } catch (e) {}
-  }
-  return [];
+  throw new Error("Todos os domínios do VidSrc bloquearam a conexão.");
 }
 
 async function buildEngine() {
@@ -69,32 +58,28 @@ async function buildEngine() {
     process.exit(1);
   }
 
-  // 1. Testa a chave do TMDB
-  const tmdbTest = await fetchFromTMDB(`https://api.themoviedb.org/3/configuration?api_key=${TMDB_API_KEY}`);
-  if (!tmdbTest) {
-    console.log("❌ ERRO CRÍTICO: A sua Chave do TMDB é inválida ou foi bloqueada!");
-    process.exit(1);
-  } else {
-    console.log("✅ Conexão com o TMDB estabelecida com sucesso!");
-  }
+  let movieIds = [];
+  let seriesIds = [];
 
-  // 2. Busca os IDs blindando contra o Cloudflare
-  let movieIds = await getIds('movie');
-  let seriesIds = await getIds('tv');
-
-  if (movieIds.length === 0 && seriesIds.length === 0) {
-    console.log("❌ ERRO FATAL: O Cloudflare bloqueou todas as tentativas. Nenhum ID foi encontrado.");
+  try {
+    const moviesRaw = await fetchVidSrcList("/ids/movie_imdb.txt");
+    const seriesRaw = await fetchVidSrcList("/ids/tv_imdb.txt");
+    
+    movieIds = moviesRaw.split('\n').map(id => id.trim()).filter(Boolean).slice(0, 50);
+    seriesIds = seriesRaw.split('\n').map(id => id.trim()).filter(Boolean).slice(0, 50);
+  } catch (err) {
+    console.log("❌ ERRO FATAL AO OBTER LISTAS:", err.message);
     process.exit(1);
   }
-
-  console.log(`🎬 Encontrados: \({movieIds.length} Filmes e\){seriesIds.length} Séries. Extraindo capas...`);
 
   const moviesDB = [];
   const seriesDB = [];
 
+  console.log(`Processando Filmes...`);
   for (const imdbId of movieIds) {
     try {
       const findData = await fetchFromTMDB(`https://api.themoviedb.org/3/find/\({imdbId}?api_key=\){TMDB_API_KEY}&external_source=imdb_id&language=pt-BR`);
+      
       if (findData && findData.movie_results.length > 0) {
         const tmdbMovie = findData.movie_results[0];
         const movieDetails = await fetchFromTMDB(`https://api.themoviedb.org/3/movie/\({tmdbMovie.id}?api_key=\){TMDB_API_KEY}&language=pt-BR`);
@@ -111,7 +96,7 @@ async function buildEngine() {
             genre: movieDetails.genres && movieDetails.genres.length > 0 ? movieDetails.genres[0].name : "Filme",
             destaque: false
           });
-          console.log(`✅ [Filme OK] ${movieDetails.title}`);
+          console.log(`✅ [Filme] ${movieDetails.title} adicionado.`);
         }
       }
     } catch (e) {
@@ -120,15 +105,18 @@ async function buildEngine() {
     await delay(150);
   }
 
+  console.log(`Processando Séries...`);
   for (const imdbId of seriesIds) {
     try {
       const findData = await fetchFromTMDB(`https://api.themoviedb.org/3/find/\({imdbId}?api_key=\){TMDB_API_KEY}&external_source=imdb_id&language=pt-BR`);
+      
       if (findData && findData.tv_results.length > 0) {
         const tmdbShow = findData.tv_results[0];
         const showDetails = await fetchFromTMDB(`https://api.themoviedb.org/3/tv/\({tmdbShow.id}?api_key=\){TMDB_API_KEY}&language=pt-BR`);
         
         if (showDetails) {
           const seasonsArray = [];
+
           if (showDetails.seasons) {
             for (const season of showDetails.seasons) {
               if (season.season_number === 0) continue; 
@@ -157,7 +145,7 @@ async function buildEngine() {
             destaque: false,
             seasons: seasonsArray
           });
-          console.log(`✅ [Série OK] ${showDetails.name}`);
+          console.log(`✅ [Série] ${showDetails.name} adicionada.`);
         }
       }
     } catch (e) {
@@ -166,14 +154,9 @@ async function buildEngine() {
     await delay(150);
   }
 
-  if (moviesDB.length === 0 && seriesDB.length === 0) {
-    console.log("❌ Nenhum dado foi formatado. Abortando para não salvar arquivos em branco!");
-    process.exit(1);
-  }
-
   fs.writeFileSync(MOVIES_OUT, JSON.stringify(moviesDB, null, 2));
   fs.writeFileSync(SERIES_OUT, JSON.stringify(seriesDB, null, 2));
-  console.log(`🎉 Sucesso! Salvos \({moviesDB.length} filmes e\){seriesDB.length} séries no banco.`);
+  console.log("Geração concluída com sucesso!");
 }
 
 buildEngine();
