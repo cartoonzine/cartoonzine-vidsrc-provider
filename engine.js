@@ -63,7 +63,7 @@ async function buildEngine() {
             url: `\({EMBED_DOMAIN}/movie/\){movieDetails.imdb_id}`,
             year: movieDetails.release_date ? movieDetails.release_date.split('-')[0] : "",
             genre: movieDetails.genres && movieDetails.genres.length > 0 ? movieDetails.genres[0].name : "Filme",
-            destaque: false
+            destaque:
           });
           console.log(`✅ [Filme OK] ${movieDetails.title}`);
         }
