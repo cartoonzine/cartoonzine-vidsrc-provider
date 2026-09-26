@@ -10,6 +10,14 @@ const VIDSRC_TV_LIST = "https://vidsrc.sh/ids/tv_imdb.txt";
 const MOVIES_OUT = path.join(__dirname, 'movies.json');
 const SERIES_OUT = path.join(__dirname, 'series.json');
 
+// Cabeçalhos para disfarçar o bot como um navegador Chrome real
+const browserHeaders = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+  'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
+  'Connection': 'keep-alive'
+};
+
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 async function fetchFromTMDB(url) {
@@ -17,7 +25,7 @@ async function fetchFromTMDB(url) {
     const res = await axios.get(url);
     return res.data;
   } catch (error) {
-    return null; // Se a chave for inválida ou der erro, apenas ignora
+    return null; 
   }
 }
 
@@ -33,22 +41,24 @@ async function buildEngine() {
   let seriesIds = [];
 
   try {
-    console.log("Baixando listas oficiais do VidSrc...");
-    const moviesRaw = await axios.get(VIDSRC_MOVIES_LIST);
-    const seriesRaw = await axios.get(VIDSRC_TV_LIST);
+    console.log("Baixando listas oficiais do VidSrc (com disfarce)...");
+    
+    // Injetando os cabeçalhos nas requisições do VidSrc
+    const moviesRaw = await axios.get(VIDSRC_MOVIES_LIST, { headers: browserHeaders });
+    const seriesRaw = await axios.get(VIDSRC_TV_LIST, { headers: browserHeaders });
     
     movieIds = moviesRaw.data.split('\n').map(id => id.trim()).filter(Boolean).slice(0, 50);
     seriesIds = seriesRaw.data.split('\n').map(id => id.trim()).filter(Boolean).slice(0, 50);
+    console.log(`✅ Listas baixadas! Encontrados \({movieIds.length} filmes e\){seriesIds.length} séries para processar.`);
   } catch (err) {
     console.log("❌ ERRO AO CONECTAR NO VIDSRC:", err.message);
-    console.log("O Cloudflare pode estar bloqueando o IP do GitHub Actions.");
     process.exit(1);
   }
 
   const moviesDB = [];
   const seriesDB = [];
 
-  console.log(`Processando ${movieIds.length} Filmes...`);
+  console.log(`Processando Filmes...`);
   for (const imdbId of movieIds) {
     try {
       const findData = await fetchFromTMDB(`https://api.themoviedb.org/3/find/\({imdbId}?api_key=\){TMDB_API_KEY}&external_source=imdb_id&language=pt-BR`);
@@ -78,7 +88,7 @@ async function buildEngine() {
     await delay(150);
   }
 
-  console.log(`Processando ${seriesIds.length} Séries...`);
+  console.log(`Processando Séries...`);
   for (const imdbId of seriesIds) {
     try {
       const findData = await fetchFromTMDB(`https://api.themoviedb.org/3/find/\({imdbId}?api_key=\){TMDB_API_KEY}&external_source=imdb_id&language=pt-BR`);
