@@ -1,7 +1,7 @@
 name: Executar Motor VidSrc
 
 on:
-  workflow_dispatch: # Habilita o botão manual no GitHub
+  workflow_dispatch:
 
 jobs:
   run-engine:
@@ -14,7 +14,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24' # Atualizado para a versão exigida pelo GitHub
 
       - name: Instalar dependências
         run: npm install
@@ -29,5 +29,5 @@ jobs:
           git config --global user.name 'Motor VidSrc Bot'
           git config --global user.email 'bot@cartoonzine.com'
           git add movies.json series.json
-          git commit -m "auto: Atualizando listas VidSrc + TMDB" || echo "Sem alterações"
-          git push
+          # O comando abaixo evita erro caso a lista seja exatamente igual à anterior
+          git diff --quiet && git diff --staged --quiet || (git commit -m "auto: Atualizando listas VidSrc + TMDB" && git push)
